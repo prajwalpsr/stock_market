@@ -1,0 +1,49 @@
+import yfinance as yf
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import precision_score
+
+def fetch_stock_data(ticker_symbol):
+    stock_data = yf.Ticker(ticker_symbol).history(period="max")
+    stock_data.drop(columns=['Dividends', 'Stock Splits'], inplace=True)
+    return stock_data
+
+def prepare_target_variable(data):
+    data['Tomorrow'] = data['Close'].shift(-1)
+    data['Target'] = (data['Tomorrow'] > data['Close']).astype(int)
+    return data
+
+def train_model(train_data, predictors):
+    model = RandomForestClassifier(n_estimators=100, min_samples_split=100, random_state=1)
+    model.fit(train_data[predictors], train_data['Target'])
+    return model
+
+def predict(model, test_data, predictors):
+    predictions = model.predict(test_data[predictors])
+    return pd.Series(predictions, index=test_data.index, name='Predictions')
+
+def backtest_model(data, model, predictors, start=2500, step=250):
+    all_predictions = []
+    for i in range(start, data.shape[0], step):
+        train = data.iloc[:i].copy()
+        test = data.iloc[i:i+step].copy()
+        predictions = predict(model, test, predictors)
+        all_predictions.append(predictions)
+    return pd.concat(all_predictions)
+
+def main():
+    ticker_symbol = "^GSPC"
+    sp500_data = fetch_stock_data(ticker_symbol)
+    sp500_data = prepare_target_variable(sp500_data)
+    
+    predictors = ["Close", "Volume", "Open", "High", "Low"]
+    model = train_model(sp500_data, predictors)
+    
+    prediction = backtest_model(sp500_data, model, predictors)
+    prediction['Target'].value_counts() / prediction.shape[0]
+    
+    precision = precision_score(prediction['Target'], prediction['Predictions'])
+    print("Precision Score:", precision)
+
+if __name__ == "__main__":
+    main()
